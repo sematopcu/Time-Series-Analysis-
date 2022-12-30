@@ -1,0 +1,137 @@
+rm(list = ls())
+cat("\014")
+library(openxlsx)
+library(tidyverse)
+yil=as.character(2001:2014)
+ay_level=c("EKİM","KASIM","ARALIK","OCAK","ŞUBAT","MART","NİSAN","MAYIS","HAZİRAN","TEMMUZ","AĞUSTOS","EYLÜL")
+df=list()
+for (i in 1:length(yil)){
+veri=read.xlsx("AKIM ORTALAMALARI.xlsx",sheet = yil[i])
+veri_sub_ort=c()
+for (j in 1:length(ay_level)){
+veri_sub=subset(veri,Ay==ay_level[j])
+veri_sub_ort[j]=mean(veri_sub$Ak?m_ort)
+}
+df[[i]]=data.frame(Yıl=rep(yil[i],length(ay_level)), Ay=ay_level, Akım=veri_sub_ort)
+}
+Yt=df[[1]]
+for (i in 2:length(df)){
+Yt=rbind(Yt,df[[i]])
+}
+plot(Yt$Akım,type="o")
+
+rm(list = ls())
+cat("\014")
+library(forecast)
+library(openxlsx)
+library(tseries)
+library(TSA)
+library(MLmetrics)
+library(nortest)
+# ***********************************************************************
+# Verinin içe aktarılması ve zaman serisi nesnesinin yaratılması 
+# ***********************************************************************
+veri=read.xlsx("veri_son.xlsx")
+Yt=ts(data=veri$Akım[1:156],start=c(2001,10),frequency=12)
+fore_original=ts(data=veri$Akım[-c(1:156)],start=c(2014,10),frequency=12)
+# ***********************************************************************
+# Serinin grafikleri
+plot(Yt,ylab="Akım (m/s)",xlab="Yıl"); 
+Acf(Yt,main=" "); 
+Pacf(Yt,main=" "); 
+
+# ****************************************************************
+# Holt - Winters Üstel Düzgünleştirme Yönteminin İcrası
+# ****************************************************************
+BoxCox.lambda(Yt)
+# (Varyansta durağanlaştırılma işlemi)
+t_Yt=Yt^(0.3) 
+BoxCox.lambda(t_Yt)
+# Model formuna göre HW uygulaması
+hw1=hw(t_Yt,h=12,seasonal = "additive")
+hw2=hw(t_Yt,h=12,seasonal = "multiplicative")
+# Model belirleme aşaması
+accuracy(hw1) 
+accuracy(hw2)
+
+best_hw=hw2 # Çarpımsal modelin uygun olduğuna karar verildi
+
+summary(best_hw)
+
+# Ters dönüşüm ile öngörülerin, güven aralıklarının vb. elde edilmesi
+best_hw$x=best_hw$x^(10/3)
+best_hw$mean=best_hw$mean^(10/3)
+best_hw$upper=best_hw$upper^(10/3)
+best_hw$lower=best_hw$lower^(10/3)
+best_hw$fitted=best_hw$fitted^(10/3)
+best_hw$residuals=best_hw$residuals^(10/3)
+
+print(best_hw)
+
+# Grafik
+plot(best_hw); lines(best_hw$fitted,col="red"); lines(fore_original,col="green",lwd=2) 
+
+# ****************************************************************
+
+# **********************************************************************
+# Box - Jenkins Yöntemi
+# **********************************************************************
+
+t_Yt=Yt^(0.3) 
+BoxCox.lambda(t_Yt)
+
+plot(t_Yt, ylab="Dönüştürülmüş Akım (m/s)",xlab="Yıl"); 
+Acf(t_Yt,main=" "); 
+Pacf(t_Yt,main=" "); 
+
+# Varyansta durağan olmama durumunda auto.arima
+fit1=auto.arima(Yt); summary(fit1)
+# Varyansta durağanlığın sağlanması sonrası auto.arima
+fit2=auto.arima(t_Yt); summary(fit2)
+# Öngörüler
+fore1=forecast(fit1,h=12)
+fore2=forecast(fit2,h=12)
+
+print(fore1); print(fore2)
+
+# Ters dönüşüm ile öngörülerin, güven aralıklarının vb. elde edilmesi
+
+fore2$x=fore2$x^(10/3)
+fore2$mean=fore2$mean^(10/3)
+fore2$upper=fore2$upper^(10/3)
+fore2$lower=fore2$lower^(10/3)
+fore2$fitted=fore2$fitted^(10/3)
+fore2$residuals=fore2$residuals^(10/3)
+
+print(fore2)
+
+# Grafik
+plot(fore2); lines(fore2$fitted,col="red"); lines(fore_original,col="green",lwd=2)
+
+# **********************************************************************
+
+# **********************************************************************
+# Öngörüler üzerinden en uygun yöntemin seçimi
+# **********************************************************************
+
+mape_hw=MAPE(best_hw$mean,fore_original); 
+cat("Holt-Winters için MAPE = ", mape_hw); cat("\n")
+mape_sarima=MAPE(fore2$mean,fore_original);
+cat("Box-Jenkins için MAPE = ", mape_sarima)
+# **********************************************************************
+
+# **********************************************************************
+# En İyi Model İçin Tanı Analizi
+# **********************************************************************
+
+best_model=fit2
+std_res=rstandard(best_model) # Standartlaştırılmış artıklar
+# Artıkların ardışık bağımsızlığının kontrolü
+Box.test(std_res,lag=10, type="Ljung") 
+# Varyansların homojenliğinin kontrolü
+BoxCox.lambda(std_res)
+# Artıkların normalliğinin testi
+qqnorm(std_res)
+shapiro.test(std_res)
+
+ 
